@@ -302,7 +302,7 @@ conditions are detected on a node.
 A recovery phase can resolve inside a node or, at worst,
 can potentially affect the state of the entire cluster.  
 Recall that every node can *independently* produce data and
-there is no *source of truth*.
+there is no *source of truth*.  
 With these premises, say if it is more correct to save a state
 rather than another, is a total arbitrary matter.  
 Because a choice must be done, when a recovery state initiates,
