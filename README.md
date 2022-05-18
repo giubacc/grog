@@ -2,7 +2,7 @@
 
 ![image](assets/grog.png)
 
-grog is a **namespaced distributed map**.
+**grog** is a cluster's protocol implementing a *namespaced distributed map*.
 
 grog's name originates from the pirates's favorite beverage in the saga
 of [Monkey Island](https://en.wikipedia.org/wiki/Monkey_Island).  
@@ -34,7 +34,7 @@ keeps alive in the cluster.
 
 ## Description
 
-As said, grog implements a distributed map kept alive by an arbitrary number
+As said, grog aims to implement a distributed map kept alive by an arbitrary number
 of nodes over a local network.  
 Each node holds exactly the same data of any other node.  
 This means that the map is not partitioned in any way across the peers.
