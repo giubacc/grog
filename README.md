@@ -6,13 +6,13 @@ grog is a **namespaced distributed map**.
 
 grog's name originates from the pirates's favorite beverage in the saga
 of [Monkey Island](https://en.wikipedia.org/wiki/Monkey_Island).  
-It's well known that such mixture is quite acid, enough to corrode the metal
-of the cup where it's poured into.  
-Such corrosive property, implies that if you have to transport a cup of grog
+It's well known that such mixture is quite acid, enough to corrode the
+mug's metal where it's poured into.  
+This corrosive property, implies that if you have to transport a bit of grog
 from one side of the Island to the other,
-you have to have a bunch of cups in your stash, so that you can decant
-the liquid when the holding cup is nearly melted.  
-In this sense, a grog cluster behaves quite similar.  
+you have to equip yourself with a bunch of cups and put them in your stash.  
+In this way, you can decant the grog when the holding mug is nearly melted.  
+So, a *grog cluster* behaves quite similar.  
 You can rely on the held content - the *grog* - as far as at least one node
 keeps alive in the cluster.
 
@@ -48,8 +48,6 @@ When all nodes disappear, the state held until that moment is lost forever.
 ## Goals
 
 * Possibly useful when **developing** a distributed application.
-* **Not** designed to be used in production.
-* **Not** meant to be efficient in space.
 * Immediate usage.
 * Zero network configuration.
 * No data definition.
@@ -60,6 +58,8 @@ When all nodes disappear, the state held until that moment is lost forever.
   * `set`, to add or update the value of a key in a map
   * `del`, to remove a key, value pair from a map
 * Integrable in programs where an implementation for that language exists.
+* **Not** designed to be used in production.
+* **Not** meant to be efficient in space.
 
 ## Daemon and CLI
 
@@ -137,7 +137,7 @@ import wxgb.grog
 ## Network protocol
 
 grog's network protocol uses both multicast UDP and TCP.  
-The protocol relies on the *timestamp* produced by
+The protocol relies on *timestamps* produced by
 grog nodes to serialize the actions over the maps.  
 Due to this, hosts's clocks are *strongly* required to be synched.  
 The protocol does not contemplate a *master* election between nodes.  
