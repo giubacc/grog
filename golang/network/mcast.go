@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
 )
 
@@ -36,7 +37,7 @@ type MCastHelper struct {
 	Status uint
 
 	//logger
-	logger util.Logger
+	logger *logrus.Logger
 
 	//Node ID
 	NodeID uint64
@@ -75,7 +76,7 @@ out:
 		select {
 		case res := <-statusReq.Response:
 			if res.(uint) == status {
-				m.logger.Trc("status reached:%d", status)
+				m.logger.Tracef("status reached:%d", status)
 				break out
 			}
 		case <-interrupter.C:
@@ -87,9 +88,7 @@ out:
 
 func (m *MCastHelper) Init() error {
 	//logger init
-	if err := m.logger.Init("mcst.", m.Cfg); err != nil {
-		return err
-	}
+	m.logger = util.GetLogger("mcst", m.Cfg)
 
 	//make request channel
 	m.RequestChan = make(chan util.Request)
@@ -99,12 +98,12 @@ func (m *MCastHelper) Init() error {
 }
 
 func (m *MCastHelper) establish_multicast() error {
-	m.logger.Trc("establishing multicast: group:%s - port:%d", m.Cfg.MulticastAddress, m.Cfg.MulticastPort)
+	m.logger.Tracef("establishing multicast: group:%s - port:%d", m.Cfg.MulticastAddress, m.Cfg.MulticastPort)
 
 	config := &net.ListenConfig{Control: mcastIncoRawConnCfg}
 
 	if iPktConn, err := config.ListenPacket(context.Background(), "udp4", fmt.Sprintf("0.0.0.0:%d", m.Cfg.MulticastPort)); err != nil {
-		m.logger.Err("listening packet:%s", err.Error())
+		m.logger.Errorf("listening packet:%s", err.Error())
 		return err
 	} else {
 		m.iPktConn = iPktConn
@@ -115,16 +114,16 @@ func (m *MCastHelper) establish_multicast() error {
 	m.outgPktUDPAddr = net.UDPAddr{IP: mgroup, Port: int(m.Cfg.MulticastPort)}
 
 	if err := m.iNPktConn.JoinGroup(&m.Inet, &m.outgPktUDPAddr); err != nil {
-		m.logger.Err("joining multicast group:%s", err.Error())
+		m.logger.Errorf("joining multicast group:%s", err.Error())
 		return err
 	}
 
 	if err := m.iNPktConn.SetControlMessage(ipv4.FlagSrc, true); err != nil {
-		m.logger.Err("SetControlMessage:%s", err.Error())
+		m.logger.Errorf("SetControlMessage:%s", err.Error())
 		return err
 	}
 	if err := m.iNPktConn.SetControlMessage(ipv4.FlagDst, true); err != nil {
-		m.logger.Err("SetControlMessage:%s", err.Error())
+		m.logger.Errorf("SetControlMessage:%s", err.Error())
 		return err
 	}
 
@@ -134,7 +133,7 @@ func (m *MCastHelper) establish_multicast() error {
 func mcastIncoRawConnCfg(network, address string, conn syscall.RawConn) error {
 	return conn.Control(func(descriptor uintptr) {
 		if err := syscall.SetsockoptInt(int(descriptor), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
-			util.DefLog().Err("SetsockoptInt:SO_REUSEADDR - %s", err.Error())
+			logrus.StandardLogger().Errorf("SetsockoptInt:SO_REUSEADDR - %s", err.Error())
 		}
 	})
 }
@@ -143,9 +142,9 @@ func (m *MCastHelper) mcastSender() {
 	for {
 		buff := <-m.MCastChanOutgoing
 		if nsent, err := m.iNPktConn.WriteTo(buff, nil, &m.outgPktUDPAddr); err != nil {
-			m.logger.Err("WriteTo:%s", err.Error())
+			m.logger.Errorf("WriteTo:%s", err.Error())
 		} else {
-			m.logger.Trc("[UDP] sent %d bytes to:%s", nsent, m.outgPktUDPAddr.String())
+			m.logger.Tracef("[UDP] sent %d bytes to:%s", nsent, m.outgPktUDPAddr.String())
 		}
 	}
 }
@@ -156,19 +155,26 @@ func (m *MCastHelper) mcastReader() {
 	for {
 		nread, cm, _, err := m.iNPktConn.ReadFrom(buff)
 		if err != nil {
-			m.logger.Err("ReadFrom:%s", err.Error())
+			m.logger.Errorf("ReadFrom:%s", err.Error())
 		} else {
-			m.logger.Trc("[UDP] read %d bytes from:%s", nread, cm.String())
+			m.logger.Tracef("[UDP] read %d bytes from:%s", nread, cm.String())
 
 			sliced_buff := buff[0:nread]
 			raw_msg := string(sliced_buff)
 			if m.Cfg.VerbLevel >= util.VL_TRACE {
-				m.logger.Trc("%s", string(raw_msg))
+				m.logger.Tracef("%s", string(raw_msg))
 			}
 
 			if idx0 := strings.Index(raw_msg, ":"); idx0 != -1 {
 				if idx1 := strings.Index(raw_msg[idx0:], "\""); idx1 != -1 {
-					switch raw_msg[idx0:][idx1+1] {
+					msgType := raw_msg[idx0:][idx1+1]
+					if m.Cfg.VerbLevel >= util.VL_TRACE {
+						m.logger.WithFields(logrus.Fields{
+							"type": msgType,
+							"msg":  string(sliced_buff),
+						}).Trace("<<")
+					}
+					switch msgType {
 					case 'A':
 						m.AliveChanIncoming <- sliced_buff
 					case 'I':

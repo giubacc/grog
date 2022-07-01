@@ -19,6 +19,8 @@ package node
 import (
 	"grog/util"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type MapItem struct {
@@ -40,7 +42,7 @@ type MapMaintainer struct {
 	TpInitialSynchWindow time.Time
 
 	//logger
-	logger util.Logger
+	logger *logrus.Logger
 
 	//Node ID
 	NodeID uint64
@@ -57,7 +59,7 @@ type MapMaintainer struct {
 
 func (m *MapMaintainer) Init() error {
 	//logger init
-	err := m.logger.Init("mmtr.", m.Cfg)
+	m.logger = util.GetLogger("mmtr", m.Cfg)
 
 	//seconds before this node will auto generate the timestamp
 	m.TpInitialSynchWindow = time.Now().Add(time.Second * time.Duration(m.Cfg.NodeSynchDuration))
@@ -66,7 +68,7 @@ func (m *MapMaintainer) Init() error {
 	m.Map = make(map[string]map[string]*MapItem)
 
 	m.Status = util.SYNC
-	return err
+	return nil
 }
 
 func (m *MapMaintainer) genTS() {
@@ -80,7 +82,7 @@ func (m *MapMaintainer) ProcessStatusSynch() error {
 	//we generate the map's timestamp
 	if m.Ts == 0 && now.After(m.TpInitialSynchWindow) {
 		m.genTS()
-		m.logger.Trc("auto-generated map's timestamp: %d", m.Ts)
+		m.logger.Tracef("auto-generated map's timestamp: %d", m.Ts)
 		m.Status = util.LOOP
 	}
 
@@ -114,7 +116,7 @@ func (m *MapMaintainer) Set(namespace string, key string, val string) (*util.Inc
 		Type:  util.MsgTypeIncremental,
 		Ts:    mapItem.Ts,
 		Nid:   m.NodeID,
-		Seqno: 0,
+		SeqNo: 0,
 		Op:    util.OP_SET,
 		Ns:    namespace,
 		Key:   key,
@@ -131,7 +133,7 @@ func (m *MapMaintainer) Del(namespace string, key string) (*util.IncrementalMsg,
 				Type:  util.MsgTypeIncremental,
 				Ts:    uint64(time.Now().UnixNano()),
 				Nid:   m.NodeID,
-				Seqno: 0,
+				SeqNo: 0,
 				Op:    util.OP_DEL,
 				Ns:    namespace,
 				Key:   key}

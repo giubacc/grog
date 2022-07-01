@@ -21,6 +21,8 @@ import (
 	"grog/util"
 	"net"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Acceptor struct {
@@ -43,7 +45,7 @@ type Acceptor struct {
 	EnteringChan chan net.Conn
 
 	//logger
-	logger util.Logger
+	logger *logrus.Logger
 
 	//channel used for generic incoming requests
 	RequestChan chan util.Request
@@ -67,7 +69,7 @@ out:
 		select {
 		case res := <-statusReq.Response:
 			if res.(uint) == status {
-				a.logger.Trc("status reached:%d", status)
+				a.logger.Tracef("status reached:%d", status)
 				break out
 			}
 		case <-interrupter.C:
@@ -81,13 +83,13 @@ func (a *Acceptor) Init() error {
 	a.ListenPort = a.Cfg.ListeningPort
 
 	//logger init
-	err := a.logger.Init("acpt.", a.Cfg)
+	a.logger = util.GetLogger("acpt", a.Cfg)
 
 	//make request channel
 	a.RequestChan = make(chan util.Request)
 
 	a.Status = util.INIT
-	return err
+	return nil
 }
 
 func (a *Acceptor) stop() error {
@@ -101,22 +103,22 @@ func (a *Acceptor) accept() error {
 				break
 			} else {
 				a.ListenPort++
-				a.logger.Trc("err:%s, try auto-adjusting listening port to:%d ...", err.Error(), a.ListenPort)
+				a.logger.Tracef("err:%s, try auto-adjusting listening port to:%d ...", err.Error(), a.ListenPort)
 			}
 		} else {
-			a.logger.Err("err:%s, listening ...", err.Error())
+			a.logger.Errorf("err:%s, listening ...", err.Error())
 			return err
 		}
 	}
 
-	a.logger.Trc("accepting ...")
+	a.logger.Tracef("accepting ...")
 	a.Status = util.LOOP
 
 	for {
 		if conn, err := a.Listener.Accept(); err != nil {
-			a.logger.Err("err:%s, accepting connection ...", err.Error())
+			a.logger.Errorf("err:%s, accepting connection ...", err.Error())
 		} else {
-			a.logger.Trc("connection accepted")
+			a.logger.Tracef("connection accepted")
 			a.EnteringChan <- conn
 		}
 	}

@@ -18,49 +18,19 @@ package util
 
 import (
 	"fmt"
+	"os"
+
+	"github.com/sirupsen/logrus"
 )
 
 type RetCode int
 
 const (
-	RetCode_UNKERR = -1000 /**< unknown error */
-
-	//system errors
-	RetCode_SCKERR = -105 /**< socket error */
-	RetCode_DBERR  = -104 /**< database error */
-	RetCode_IOERR  = -103 /**< I/O operation fail */
-	RetCode_MEMERR = -102 /**< memory error */
-	RetCode_SYSERR = -101 /**< system error */
-
-	//generic error
-	RetCode_UNVRSC = -2 /**< unavailable resource */
-	RetCode_GENERR = -1 /**< generic error */
-
-	//success, failure [0,1]
-	RetCode_OK    = 0 /**< operation ok */
-	RetCode_KO    = 1 /**< operation fail */
-	RetCode_EXIT  = 2 /**< exit required */
-	RetCode_RETRY = 3 /**< request retry */
-	RetCode_ABORT = 4 /**< operation aborted */
-
-	//generics
-	RetCode_UNSP     = 100 /**< unsupported */
-	RetCode_NODATA   = 101 /**< no data */
-	RetCode_NOTFOUND = 102 /**< not found */
-	RetCode_TIMEOUT  = 103 /**< timeout */
-
-	//proc. specific
-	RetCode_BADARG  = 300 /**< bad argument */
-	RetCode_BADIDX  = 301 /**< bad index */
-	RetCode_BADSTTS = 302 /**< bad status */
-	RetCode_BADCFG  = 303 /**< bad configuration */
-
-	//network specific
-	RetCode_DRPPKT  = 400 /**< packet dropped*/
-	RetCode_MALFORM = 401 /**< packet malformed */
-	RetCode_SCKCLO  = 402 /**< socket closed */
-	RetCode_SCKWBLK = 403 /**< socket would block */
-	RetCode_PARTPKT = 404 /**< partial packet */
+	RetCode_OK = iota
+	RetCode_KO
+	RetCode_NOP
+	RetCode_EXIT
+	RetCode_BADCFG
 )
 
 type GrogError struct {
@@ -115,4 +85,41 @@ const (
 type Request struct {
 	ReqCode  uint
 	Response chan interface{}
+}
+
+type LogLevelStr string
+
+const (
+	TraceStr = "trc"
+	InfoStr  = "inf"
+	WarnStr  = "wrn"
+	ErrStr   = "err"
+	FatalStr = "fat"
+)
+
+var LogLevelStr2LvL = map[string]logrus.Level{
+	TraceStr: logrus.TraceLevel,
+	InfoStr:  logrus.InfoLevel,
+	WarnStr:  logrus.WarnLevel,
+	ErrStr:   logrus.ErrorLevel,
+	FatalStr: logrus.FatalLevel}
+
+func GetLogger(class string, cfg *Config) *logrus.Logger {
+	logger := &logrus.Logger{
+		Formatter: new(logrus.TextFormatter),
+		Hooks:     make(logrus.LevelHooks),
+		Level:     LogLevelStr2LvL[cfg.LogLevel],
+	}
+
+	if cfg.LogType == "shell" {
+		logger.Out = os.Stdout
+	} else {
+		if l_fd, err := os.OpenFile(class+cfg.LogType, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644); err != nil {
+			fmt.Println(err.Error())
+			return nil
+		} else {
+			logger.Out = l_fd
+		}
+	}
+	return logger
 }

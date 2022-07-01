@@ -22,6 +22,8 @@ import (
 	"grog/util"
 	"net"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Streamer struct {
@@ -29,17 +31,23 @@ type Streamer struct {
 	Cfg *util.Config
 
 	//logger
-	logger util.Logger
+	logger *logrus.Logger
 }
 
 func (s *Streamer) Init() error {
 	//logger init
-	err := s.logger.Init("strm.", s.Cfg)
+	s.logger = util.GetLogger("strm", s.Cfg)
 
-	return err
+	return nil
 }
 
-func (s *Streamer) SendBuffer(conn net.Conn, buff []byte) error {
+func (s *Streamer) SendSnapshotBuffer(conn net.Conn, buff []byte) error {
+	if s.Cfg.VerbLevel >= util.VL_TRACE {
+		s.logger.WithFields(logrus.Fields{
+			"type": "S",
+			"msg":  string(buff),
+		}).Trace(">>")
+	}
 
 	//put buffer's length in front of the outgoing stream
 	outgBuff := make([]byte, len(buff)+4)
@@ -48,10 +56,10 @@ func (s *Streamer) SendBuffer(conn net.Conn, buff []byte) error {
 
 	nsent, err := conn.Write(outgBuff)
 	if err != nil {
-		s.logger.Err("sending data msg:%s", err.Error())
+		s.logger.Errorf("sending data msg:%s", err.Error())
 		return err
 	}
-	s.logger.Trc("[TCP] sent %d bytes to:%s", nsent, conn.RemoteAddr().String())
+	s.logger.Tracef("[TCP] sent %d bytes to:%s", nsent, conn.RemoteAddr().String())
 	return nil
 }
 
@@ -62,7 +70,7 @@ func (s *Streamer) DialAndReceiveSnapshotBuffer(address string) ([]byte, error) 
 
 	conn, err := d.DialContext(ctx, "tcp", address)
 	if err != nil {
-		s.logger.Err("dialing to:%s", address)
+		s.logger.Errorf("dialing to:%s", address)
 		return nil, err
 	}
 	defer conn.Close()
@@ -71,7 +79,7 @@ func (s *Streamer) DialAndReceiveSnapshotBuffer(address string) ([]byte, error) 
 	for {
 		nread, err := conn.Read(header)
 		if err != nil {
-			s.logger.Err("receiving snapshot header:%s", err.Error())
+			s.logger.Errorf("receiving snapshot header:%s", err.Error())
 			return nil, err
 		}
 		if nread >= 4 {
@@ -79,10 +87,16 @@ func (s *Streamer) DialAndReceiveSnapshotBuffer(address string) ([]byte, error) 
 			bodyBuffer := make([]byte, bodyLen)
 
 			if nread, err := conn.Read(bodyBuffer); err != nil {
-				s.logger.Err("receiving snapshot body:%s", err.Error())
+				s.logger.Errorf("receiving snapshot body:%s", err.Error())
 				return nil, err
 			} else {
-				s.logger.Trc("[TCP] received %d (body) bytes from:%s", nread, conn.RemoteAddr().String())
+				s.logger.Tracef("[TCP] received %d (body) bytes from:%s", nread, conn.RemoteAddr().String())
+				if s.Cfg.VerbLevel >= util.VL_TRACE {
+					s.logger.WithFields(logrus.Fields{
+						"type": "S",
+						"msg":  string(bodyBuffer),
+					}).Trace("<<")
+				}
 				return bodyBuffer, nil
 			}
 		}

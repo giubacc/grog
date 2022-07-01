@@ -27,8 +27,8 @@ const (
 	Type     = "type"     //message type
 	Ts       = "ts"       //map's timestamp at the sending epoch of the message
 	Nid      = "nid"      //node-id, it is set at the starting epoch of the node
-	Seqno    = "seqno"    //last sequence number produced by the node, it is incremented every time an I message is produced
-	Seqnos   = "seqnos"   //array containing all the sequence numbers of every node contributed updating the map
+	SeqNo    = "seqno"    //last sequence number produced by the node, it is incremented every time an I message is produced
+	SeqNos   = "seqnos"   //array containing all the sequence numbers of every node contributed updating the map
 	Address  = "address"  //node's ip:port where it listens for snapshot requests
 	Snapshot = "snapshot" //map's snapshot data
 	Ns       = "ns"       //item namespace
@@ -47,7 +47,7 @@ type AliveMsg struct {
 	Type    string `json:"type"`
 	Ts      uint64 `json:"ts"`      //map's timestamp at the sending epoch of the message
 	Nid     uint64 `json:"nid"`     //node-id
-	Seqno   uint64 `json:"seqno"`   //the last sequence number produced by this node
+	SeqNo   uint64 `json:"seqno"`   //the last sequence number produced by this node
 	Address string `json:"address"` //the node's ip:port where it listens for snapshot requests
 }
 
@@ -55,9 +55,9 @@ type AliveMsg struct {
  * An association between a nid and its last produced seqno.
  * It is used inside the Snapshot message.
  */
-type NidSeqno struct {
+type NidSeqNo struct {
 	Nid   uint64 `json:"nid"`
-	Seqno uint64 `json:"seqno"`
+	SeqNo uint64 `json:"seqno"`
 }
 
 /**
@@ -93,7 +93,7 @@ type SnapshotMsg struct {
 	Type     string      `json:"type"`
 	Ts       uint64      `json:"ts"`       //map's timestamp at the sending epoch of the message
 	Nid      uint64      `json:"nid"`      //node-id
-	Seqnos   []NidSeqno  `json:"seqnos"`   //array containing all the sequence numbers of every node contributed updating the map
+	SeqNos   []NidSeqNo  `json:"seqnos"`   //array containing all the sequence numbers of every node contributed updating the map
 	Snapshot SnapshotFld `json:"snapshot"` //map's snapshot
 }
 
@@ -104,7 +104,7 @@ type IncrementalMsg struct {
 	Type  string `json:"type"`
 	Ts    uint64 `json:"ts"`    //I timestamp, it denotes the timestamp of this event
 	Nid   uint64 `json:"nid"`   //node-id
-	Seqno uint64 `json:"seqno"` //last sequence number produced by this node
+	SeqNo uint64 `json:"seqno"` //last sequence number produced by this node
 	Op    uint16 `json:"op"`    //operation associated with the message
 	Ns    string `json:"ns"`    //item's namespace
 	Key   string `json:"key"`   //item's key

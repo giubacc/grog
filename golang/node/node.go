@@ -23,6 +23,8 @@ import (
 	"grog/util"
 	"net"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Node struct {
@@ -33,7 +35,7 @@ type Node struct {
 	NodeID uint64
 
 	//the last sequence number produced by the node
-	Seqno uint64
+	SeqNo uint64
 
 	//chosen inet
 	Inet net.Interface
@@ -63,14 +65,16 @@ type Node struct {
 	mapMaintainer MapMaintainer
 
 	//logger
-	logger util.Logger
+	logger *logrus.Logger
+
+	//a map containing the last sequence number produced by a node [nid:seqno]
+	NodeSeqNo map[uint64]uint64
 
 	//CLI
 	OpDone bool
 }
 
 func (p *Node) Run() error {
-
 	if err := p.init(); err != nil {
 		return err
 	}
@@ -93,11 +97,11 @@ func (n *Node) choose_inet() error {
 			addr, _ := ni.Addrs()
 			if len(addr) > 0 {
 				addr0 := addr[0].String()
-				n.logger.Trc("inspecting host-intf:%s-%s ...", ni.Name, addr0)
+				n.logger.Tracef("inspecting host-intf:%s-%s ...", ni.Name, addr0)
 
 				if !chosenIntf && ni.Name == n.Cfg.NetInterfaceName {
 					n.Inet = ni
-					n.logger.Trc("chosen host-intf:%s-%s", ni.Name, addr0)
+					n.logger.Tracef("chosen host-intf:%s-%s", ni.Name, addr0)
 					chosenIntf = true
 					break
 				}
@@ -112,16 +116,14 @@ func (n *Node) choose_inet() error {
 
 func (n *Node) init() error {
 	//logger init
-	if err := n.logger.Init("node.", &n.Cfg); err != nil {
-		return err
-	}
+	n.logger = util.GetLogger("node", &n.Cfg)
 
 	if err := n.choose_inet(); err != nil {
 		return err
 	}
 
 	n.NodeID = uint64(time.Now().UnixNano())
-	n.logger.Trc("NID:%d", n.NodeID)
+	n.logger.Debugf("NID:%d", n.NodeID)
 
 	n.EnteringChan = make(chan net.Conn)
 	n.AliveChanIncoming = make(chan []byte)
@@ -167,14 +169,14 @@ func (n *Node) doCLIOp() {
 	case util.OP_SET:
 		if incrMsg, err := n.mapMaintainer.Set(n.Cfg.Namespace, n.Cfg.Key, n.Cfg.Val); err == nil {
 			if err := n.bcastIncrementalMessage(*incrMsg); err != nil {
-				n.logger.Err("broadcasting incremental:%s", err.Error())
+				n.logger.Errorf("broadcasting incremental:%s", err.Error())
 			}
 			fmt.Printf("updated key=%s in %s namespace\n", n.Cfg.Key, ns)
 		}
 	case util.OP_DEL:
 		if incrMsg, err := n.mapMaintainer.Del(n.Cfg.Namespace, n.Cfg.Key); err == nil && incrMsg != nil {
 			if err := n.bcastIncrementalMessage(*incrMsg); err != nil {
-				n.logger.Err("broadcasting incremental:%s", err.Error())
+				n.logger.Errorf("broadcasting incremental:%s", err.Error())
 			}
 		}
 		fmt.Printf("deleted key=%s in %s namespace\n", n.Cfg.Key, ns)
@@ -184,19 +186,19 @@ func (n *Node) doCLIOp() {
 }
 
 func (n *Node) start() error {
-	n.logger.Trc("initializing map maintainer ...")
+	n.logger.Tracef("initializing map maintainer ...")
 
 	if err := n.mapMaintainer.Init(); err != nil {
 		return err
 	}
 
-	n.logger.Trc("initializing streamer ...")
+	n.logger.Tracef("initializing streamer ...")
 
 	if err := n.streamer.Init(); err != nil {
 		return err
 	}
 
-	n.logger.Trc("starting acceptor ...")
+	n.logger.Tracef("starting acceptor ...")
 
 	if err := n.acceptor.Init(); err != nil {
 		return err
@@ -204,7 +206,7 @@ func (n *Node) start() error {
 	go n.acceptor.Run()
 	n.acceptor.WaitForStatus(util.LOOP)
 
-	n.logger.Trc("starting multicast ...")
+	n.logger.Tracef("starting multicast ...")
 
 	if err := n.mcastHelper.Init(); err != nil {
 		return err
@@ -216,10 +218,13 @@ func (n *Node) start() error {
 }
 
 func (n *Node) processEvents() error {
-	n.logger.Trc("start processing events ...")
+	n.logger.Tracef("start processing events ...")
 
 	interrupter := time.NewTicker(time.Millisecond * time.Duration(n.Cfg.LoopReactivity))
 	defer interrupter.Stop()
+
+	aliveTicker := time.NewTicker(time.Second * 20)
+	defer aliveTicker.Stop()
 
 out:
 	for {
@@ -233,20 +238,22 @@ out:
 			} else if !n.OpDone && n.mapMaintainer.Status == util.LOOP {
 				n.doCLIOp()
 			}
+		case <-aliveTicker.C:
+			n.bcastAliveMessage()
 		case conn := <-n.EnteringChan:
 			n.sendSnapshotMessage(conn)
 		case pkt := <-n.AliveChanIncoming:
 			if err := n.processAliveMsg(pkt); err != nil {
-				n.logger.Err("processAliveMsg:%s", err.Error())
+				n.logger.Errorf("processAliveMsg:%s", err.Error())
 			}
 		case pkt := <-n.IncrementalChanIncoming:
 			if err := n.processIncrementalMsg(pkt); err != nil {
-				n.logger.Err("processIncrementalMsg:%s", err.Error())
+				n.logger.Errorf("processIncrementalMsg:%s", err.Error())
 			}
 		}
 	}
 
-	n.logger.Trc("stop processing events")
+	n.logger.Tracef("stop processing events")
 	return nil
 }
 
@@ -268,28 +275,25 @@ func (n *Node) processStatus() error {
 func (n *Node) processAliveMsg(pkt []byte) error {
 	msg := util.AliveMsg{}
 	if err := json.Unmarshal(pkt, &msg); err != nil {
-		n.logger.Err("unmarshalling alive:%s", err.Error())
+		n.logger.Errorf("unmarshalling alive:%s", err.Error())
 	}
 
 	if msg.Nid == n.NodeID {
-		n.logger.Trc("alive message from this node, discarding ...")
+		n.logger.Tracef("alive message from this node, discarding ...")
 		return nil
 	}
 
 	if n.mapMaintainer.Ts == 0 {
 		if msg.Ts == 0 {
-			n.logger.Trc("alive message from synching node: this node is synching, discarding ...")
+			n.logger.Tracef("alive message from synching node: this node is synching, discarding ...")
 		} else {
-			n.logger.Trc("alive message from looping node: this node is synching, asking for snapshot ...")
+			n.logger.Tracef("alive message from looping node: this node is synching, asking for snapshot ...")
 			if buff, err := n.streamer.DialAndReceiveSnapshotBuffer(msg.Address); err != nil {
-				n.logger.Err("receiving snapshot:%s", err.Error())
+				n.logger.Errorf("receiving snapshot:%s", err.Error())
 			} else {
-				if n.Cfg.VerbLevel >= util.VL_TRACE {
-					n.logger.Trc("%s", string(buff))
-				}
 				msg := util.SnapshotMsg{}
 				if err := json.Unmarshal(buff, &msg); err != nil {
-					n.logger.Err("unmarshalling snapshot :%s", err.Error())
+					n.logger.Errorf("unmarshalling snapshot :%s", err.Error())
 				} else {
 					n.mapMaintainer.OfferSnapshot(msg)
 				}
@@ -297,7 +301,7 @@ func (n *Node) processAliveMsg(pkt []byte) error {
 		}
 	} else {
 		if msg.Ts == 0 {
-			n.logger.Trc("alive message from synching node: this node is looping, notifying ...")
+			n.logger.Tracef("alive message from synching node: this node is looping, notifying ...")
 			n.bcastAliveMessage()
 		} else {
 			//this node is looping, here we should check sequence numbers
@@ -310,16 +314,16 @@ func (n *Node) processAliveMsg(pkt []byte) error {
 func (n *Node) processIncrementalMsg(pkt []byte) error {
 	msg := util.IncrementalMsg{}
 	if err := json.Unmarshal(pkt, &msg); err != nil {
-		n.logger.Err("unmarshalling incremental:%s", err.Error())
+		n.logger.Errorf("unmarshalling incremental:%s", err.Error())
 	}
 
 	if msg.Nid == n.NodeID {
-		n.logger.Trc("incremental message from this node, discarding ...")
+		n.logger.Tracef("incremental message from this node, discarding ...")
 		return nil
 	}
 
 	if n.mapMaintainer.Ts == 0 {
-		n.logger.Trc("incremental message: this node is synching, discarding ...")
+		n.logger.Tracef("incremental message: this node is synching, discarding ...")
 	} else {
 		n.mapMaintainer.OfferIncremental(msg)
 	}
@@ -327,27 +331,24 @@ func (n *Node) processIncrementalMsg(pkt []byte) error {
 	return nil
 }
 
-func (n *Node) buildAliveMessage() ([]byte, error) {
+func (n *Node) bcastAliveMessage() error {
 	msg := util.AliveMsg{
 		Type:    util.MsgTypeAlive,
 		Ts:      n.mapMaintainer.Ts,
 		Nid:     n.NodeID,
-		Seqno:   n.Seqno,
+		SeqNo:   n.SeqNo,
 		Address: n.acceptor.Listener.Addr().String()}
-	buff, err := json.Marshal(msg)
 
-	if n.Cfg.VerbLevel >= util.VL_TRACE {
-		n.logger.Trc("%s", string(buff))
-	}
-
-	return buff, err
-}
-
-func (n *Node) bcastAliveMessage() error {
-	if buff, err := n.buildAliveMessage(); err != nil {
-		n.logger.Err("building alive msg:%s", err.Error())
+	if buff, err := json.Marshal(msg); err != nil {
+		n.logger.Errorf("building alive msg:%s", err.Error())
 		return err
 	} else {
+		if n.Cfg.VerbLevel >= util.VL_TRACE {
+			n.logger.WithFields(logrus.Fields{
+				"type": "A",
+				"msg":  string(buff),
+			}).Trace(">>")
+		}
 		n.MCastChanOutgoing <- buff
 	}
 	return nil
@@ -356,20 +357,33 @@ func (n *Node) bcastAliveMessage() error {
 func (n *Node) sendSnapshotMessage(conn net.Conn) error {
 	if msg, err := n.mapMaintainer.TakeSnapshot(); err == nil {
 		if buff, err := json.Marshal(*msg); err != nil {
-			n.logger.Err("marshalling snapshot msg:%s", err.Error())
+			n.logger.Errorf("marshalling snapshot msg:%s", err.Error())
 			return err
 		} else {
-			go n.streamer.SendBuffer(conn, buff)
+			if n.Cfg.VerbLevel >= util.VL_TRACE {
+				n.logger.WithFields(logrus.Fields{
+					"type": "S",
+					"msg":  string(buff),
+				}).Trace(">>")
+			}
+			go n.streamer.SendSnapshotBuffer(conn, buff)
 		}
 	}
 	return nil
 }
 
 func (n *Node) bcastIncrementalMessage(msg util.IncrementalMsg) error {
+	n.SeqNo++
 	if buff, err := json.Marshal(msg); err != nil {
-		n.logger.Err("marshalling incremental msg:%s", err.Error())
+		n.logger.Errorf("marshalling incremental msg:%s", err.Error())
 		return err
 	} else {
+		if n.Cfg.VerbLevel >= util.VL_TRACE {
+			n.logger.WithFields(logrus.Fields{
+				"type": "I",
+				"msg":  string(buff),
+			}).Trace(">>")
+		}
 		n.MCastChanOutgoing <- buff
 	}
 	return nil
