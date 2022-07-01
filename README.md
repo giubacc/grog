@@ -64,7 +64,8 @@ When all nodes disappear, the state held until that moment is lost forever.
 ## Daemon and CLI
 
 grog daemon and CLI is a stand alone program that can be directly executed
-allowing to query and modify the map's state.
+allowing to query and modify the map's state.  
+An implementation of grog daemon and CLI should try to adhere to the following usage guidelines:
 
 ```text
 SYNOPSIS
@@ -94,7 +95,6 @@ and a custom application that uses grog.
 
 ```shell
 node-1$ grog -d set John='{"name":"John", "surname":"Smith", "age":30}'
-daemonize grog ...
 updated key=John in default namespace
 ```
 

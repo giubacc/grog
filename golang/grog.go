@@ -56,8 +56,8 @@ func main() {
 	flag.IntVar(&nd.Cfg.NodeSynchDuration, "syd", 1, "Node synchronization phase duration in seconds")
 	flag.IntVar(&nd.Cfg.LoopReactivity, "lr", 100, "Loop reactivity in milliseconds")
 
-	flag.StringVar(&nd.Cfg.LogType, "l", "shell", "Specify logging type [shell (default), file name]")
-	flag.StringVar(&nd.Cfg.LogLevel, "v", "inf", "Specify logging verbosity [off, trc, inf (default), wrn, err]")
+	flag.StringVar(&nd.Cfg.LogType, "l", "shell", "Specify logging type [shell, file name]")
+	flag.StringVar(&nd.Cfg.LogLevel, "v", "inf", "Specify logging verbosity [off, trc, inf, wrn, err]")
 
 	flag.StringVar(&nd.Cfg.Namespace, "n", "", "Specify a namespace when getting/setting a key")
 	flag.Func("get", "Get a key's value", ParseGetArg)
