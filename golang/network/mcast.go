@@ -150,35 +150,37 @@ func (m *MCastHelper) mcastSender() {
 }
 
 func (m *MCastHelper) mcastReader() {
-	buff := make([]byte, 1500)
+	readBuff := make([]byte, 1500)
 	//reading loop from multicast connection
 	for {
-		nread, cm, _, err := m.iNPktConn.ReadFrom(buff)
+		nread, cm, _, err := m.iNPktConn.ReadFrom(readBuff)
 		if err != nil {
 			m.logger.Errorf("ReadFrom:%s", err.Error())
 		} else {
 			m.logger.Tracef("[UDP] read %d bytes from:%s", nread, cm.String())
 
-			sliced_buff := buff[0:nread]
-			raw_msg := string(sliced_buff)
+			slicedBuff := readBuff[0:nread]
+			rawMsg := string(slicedBuff)
 			if m.Cfg.VerbLevel >= util.VL_TRACE {
-				m.logger.Tracef("%s", string(raw_msg))
+				m.logger.Tracef("%s", string(rawMsg))
 			}
 
-			if idx0 := strings.Index(raw_msg, ":"); idx0 != -1 {
-				if idx1 := strings.Index(raw_msg[idx0:], "\""); idx1 != -1 {
-					msgType := raw_msg[idx0:][idx1+1]
+			if idx0 := strings.Index(rawMsg, ":"); idx0 != -1 {
+				if idx1 := strings.Index(rawMsg[idx0:], "\""); idx1 != -1 {
+					msgType := rawMsg[idx0:][idx1+1]
 					if m.Cfg.VerbLevel >= util.VL_TRACE {
 						m.logger.WithFields(logrus.Fields{
-							"type": msgType,
-							"msg":  string(sliced_buff),
+							"type": string(msgType),
+							"msg":  string(slicedBuff),
 						}).Trace("<<")
 					}
+					outBuff := make([]byte, len(slicedBuff))
+					copy(outBuff, slicedBuff)
 					switch msgType {
 					case 'A':
-						m.AliveChanIncoming <- sliced_buff
+						m.AliveChanIncoming <- outBuff
 					case 'I':
-						m.IncrementalChanIncoming <- sliced_buff
+						m.IncrementalChanIncoming <- outBuff
 					}
 				}
 			}

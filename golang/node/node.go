@@ -276,6 +276,7 @@ func (n *Node) processAliveMsg(pkt []byte) error {
 	msg := util.AliveMsg{}
 	if err := json.Unmarshal(pkt, &msg); err != nil {
 		n.logger.Errorf("unmarshalling alive:%s", err.Error())
+		return err
 	}
 
 	if msg.Nid == n.NodeID {
@@ -315,6 +316,7 @@ func (n *Node) processIncrementalMsg(pkt []byte) error {
 	msg := util.IncrementalMsg{}
 	if err := json.Unmarshal(pkt, &msg); err != nil {
 		n.logger.Errorf("unmarshalling incremental:%s", err.Error())
+		return err
 	}
 
 	if msg.Nid == n.NodeID {
