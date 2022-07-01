@@ -64,7 +64,8 @@ When all nodes disappear, the state held until that moment is lost forever.
 ## Daemon and CLI
 
 grog daemon and CLI is a stand alone program that can be directly executed
-allowing to query and modify the map's state.
+allowing to query and modify the map's state.  
+An implementation of grog daemon and CLI should try to adhere to the following usage guidelines:
 
 ```text
 SYNOPSIS
@@ -94,7 +95,6 @@ and a custom application that uses grog.
 
 ```shell
 node-1$ grog -d set John='{"name":"John", "surname":"Smith", "age":30}'
-daemonize grog ...
 updated key=John in default namespace
 ```
 
@@ -172,22 +172,22 @@ So, there are two main flows:
 
 When a node starts, it performs the following steps:
 
-* Send an alive `AL` message over the UDP multicast channel
+* Send an alive `A` message over the UDP multicast channel
 
 ```javascript
 {
-  type: "AL",                  //message type, AL (alive)
-  ts: 0,                       //the map's timestamp at the sending epoch of the message, zero when this is the first AL message produced
+  type: "A",                   //message type, A (alive)
+  ts: 0,                       //the map's timestamp at the sending epoch of the message, zero when this is the first A message produced
   nid: ${node-starting-TS},    //the node-id, it is set at the starting epoch of the node
   seqno: 0,                    //the last sequence number produced by this node, it is incremented every time an I message is produced
   address: "${ip}:${port}"     //the node's ip:port where it listen for snapshot requests
 }
 ```
 
-* If an `AL` message is received from an another node, then connect to obtain a snapshot `S` message.
-* If no `AL` messages are received in useful time, then set a map's timestamp and go on with the [live phase](#live-phase).
+* If an `A` message is received from an another node, then connect to obtain a snapshot `S` message.
+* If no `A` messages are received in useful time, then set a map's timestamp and go on with the [live phase](#live-phase).
 
-A node serves a snapshot when a TCP connection is established at the address specified in the `AL` message.  
+A node serves a snapshot when a TCP connection is established at the address specified in the `A` message.  
 The json entity containing a snapshot is streamed over the TCP channel.  
 The first 4 bytes received on the stream denote the length (in bytes) of the subsequent json entity.
 
@@ -197,9 +197,12 @@ ${message-length}                 //4 bytes (big endian), containing the subsequ
   type: "S",                      //message type, S (snapshot)
   ts: ${map-TS},                  //the map's timestamp at the sending epoch of the message
   nid: ${node-starting-TS},       //the node-id, it is set at the starting epoch of the node
-  seqnos: [{${nid-0}:${seqno-0}}, 
-           {${nid-1}:${seqno-1}}, 
-           {${nid-2}:${seqno-2}},
+  seqnos: [{nid: ${nid-0},
+            seqno :${seqno-0}},
+           {nid: ${nid-1},
+            seqno :${seqno-1}},
+           {nid: ${nid-2},
+            seqno :${seqno-2}},
            ...
            ],                     //an array containing all the sequence numbers of every node contributed updating the map
   snapshot: {...}                 //the map's snapshot data, see below for format's details
@@ -212,20 +215,22 @@ The `snapshot` field in the `S` message has the following format:
 {
   ts: ${map-TS},                      //the map's timestamp, it's the last event timestamp
 
-  [                                   //an array of namespaced items                  
+  snapshot-ns: [                      //an array of namespaced items
     {
       ns: ${namespace-0},             //the item namespace
 
-      [                               //an array of pairs K:V, each one falling into the same parent's namespace 
+      seqnos: [                       //an array of pairs K:V, each one falling into the same parent's namespace
         {
           ts: ${event-TS-0},          //each K:V pair has associated an event's TS
           nid: ${nid-0},              //each K:V pair has associated the node id that produced the event
-          ${K-0:V-0}
+          key: ${K-0},
+          val: ${V-0}
         },
         {
           ts: ${event-TS-1},
           nid: ${nid-1},
-          ${K-1:V-1}
+          key: ${K-1},
+          val: ${V-1}
         },
 
         ...
@@ -259,8 +264,8 @@ When in live phase, a node must:
 
 * process all the incoming `I` messages.
 * respond to all the incoming TCP connections and serve the snapshots.
-* send unsolicited `AL` messages with a frequency of 20 seconds.
-* send an `AL` message in reply to received `AL` messages with `ts = 0` (new nodes).
+* send unsolicited `A` messages with a frequency of 20 seconds.
+* send an `A` message in reply to received `A` messages with `ts = 0` (new nodes).
 
 When the node is part of an application, it processes the changes requested
 by the applicative layer.  
@@ -275,7 +280,9 @@ An `I` message has the following structure:
   nid: ${node-starting-TS},       //the node-id, it is set at the starting epoch of the node
   seqno: ${last-seqno},           //the last sequence number produced by this node
   op: ${operation-code},          //the operation associated with the message: set or del
-  data: ${ns:N, K:V}              //the K:V pair value with its namespace
+  ns: ${namespace},               //item's namespace
+  key: ${K},                      //item's key
+  val: ${V}                       //item's value
 }
 ```
 
@@ -316,14 +323,14 @@ Indeed, a node can:
 
 A node detects a *gap* when it receives an OOS packet; this is possible with:
 
-* `AL` with a `seqno` higher than the expected.
+* `A` with a `seqno` higher than the expected.
 * `I`  with a `seqno` higher than the expected.
 
 When a gap is detected with an `I` message, a node is allowed to wait
 a grace period of 100 ms trying to receive the missing packet(s).  
 If the gap resolves spontaneously, thus the missing packed are received and reordered,
 no further actions are required.  
-If instead, a gap is detected with an `AL` message or the grace period
+If instead, a gap is detected with an `A` message or the grace period
 elapses, the node must initiate a recovery phase.
 
 #### Recovery's functioning
@@ -336,30 +343,30 @@ When:
 
 * The node's `nid` is greater than the counterpart's `nid`:
   * Trigger a snapshot request, to be done after 2 seconds, against the counterpart.
-  * If, during the countdown, an OOS `AL` message with an even lesser `nid` is received,
+  * If, during the countdown, an OOS `A` message with an even lesser `nid` is received,
     then reset the countdown and *push-front* a new snapshot request with the new counterpart.
   * Requests must be try in order, from the smallest `nid` to the greatest; the process stops
     as soon as a request completes successfully.
 * The node's `nid` is lesser than the counterpart's `nid`
-  * Broadcast an artificial OOS `AL` message and update the internal `seqno` accordingly.
+  * Broadcast an artificial OOS `A` message and update the internal `seqno` accordingly.
 
 #### Recovery scenario 1
 
 There are 4 nodes forming a cluster: N1, N2, N3 and N4.  
 N1 is the oldest, N2 has spawned after N1 and so on.  
 At a certain epoch, N3 produces an `I` message that is not received by N4.  
-When N3 produces an `AL` message, N4 detects a gap because the `seqno` in the message is
+When N3 produces an `A` message, N4 detects a gap because the `seqno` in the message is
 not the expected one.
 
 ```text
   [1]               [2]
-N1 <---           N1 <--- [ok]     
-      |                 |     
-N2 <---           N2 <--- [ok]    
-      |                 |     
-N3 ---> (I)       N3 ---> (AL) 
-      |                 |     
-N4  X--           N4 <--- [gap detected]   
+N1 <---           N1 <--- [ok]
+      |                 |
+N2 <---           N2 <--- [ok]
+      |                 |
+N3 ---> (I)       N3 ---> (A)
+      |                 |
+N4  X--           N4 <--- [gap detected]
 
 ```
 
@@ -383,28 +390,28 @@ N4 is now recovered.
 #### Recovery scenario 2
 
 At a certain epoch, N3 produces an `I` message that is not received by N2.  
-When N3 produces an `AL` message, N2 detects a gap because the `seqno` in the message is
+When N3 produces an `A` message, N2 detects a gap because the `seqno` in the message is
 not the expected one.
 
 ```text
   [1]               [2]
-N1 <---           N1 <--- [ok]     
-      |                 |     
-N2  X--           N2 <--- [gap detected]    
-      |                 |     
-N3 ---> (I)       N3 ---> (AL) 
-      |                 |     
-N4 <---           N4 <--- [ok]   
+N1 <---           N1 <--- [ok]
+      |                 |
+N2  X--           N2 <--- [gap detected]
+      |                 |
+N3 ---> (I)       N3 ---> (A)
+      |                 |
+N4 <---           N4 <--- [ok]
 
 ```
 
-Because N2's `nid` is lesser than N3's `nid`, N2 broadcast an artificial OOS `AL` message.  
+Because N2's `nid` is lesser than N3's `nid`, N2 broadcast an artificial OOS `A` message.  
 
 ```text
   [3]
 N1 <--- [gap detected]
       |
-N2 ---> (OOS AL)              
+N2 ---> (OOS A)
       |
 N3 <--- [gap detected]
       |
@@ -412,8 +419,8 @@ N4 <--- [gap detected]
 
 ```
 
-When N2 produces an OOS `AL` message, all the other nodes detect a gap.  
-Because N1's `nid` is lesser than N2's `nid`, N1 broadcast an artificial OOS `AL` message.  
+When N2 produces an OOS `A` message, all the other nodes detect a gap.  
+Because N1's `nid` is lesser than N2's `nid`, N1 broadcast an artificial OOS `A` message.  
 Because N3's `nid` is greater than N2's `nid`,
 N3 triggers a request for a snapshot to N2 in 2 seconds.  
 Because N4's `nid` is greater than N2's `nid`,
@@ -421,9 +428,9 @@ N4 triggers a request for a snapshot to N2 in 2 seconds.
 
 ```text
   [4]
-N1 ---> (OOS AL)
+N1 ---> (OOS A)
       |
-N2 <--- [gap detected]              
+N2 <--- [gap detected]
       |
 N3 <--- [gap detected] [pending snapshot request to N2]
       |
@@ -431,7 +438,7 @@ N4 <--- [gap detected] [pending snapshot request to N2]
 
 ```
 
-When N1 produces an OOS `AL` message, all the other nodes detect a gap.  
+When N1 produces an OOS `A` message, all the other nodes detect a gap.  
 Because N2's `nid` is greater than N1's `nid`,
 N2 triggers a request for a snapshot to N1 in 2 seconds.  
 Because N3's `nid` is greater than N1's `nid`,
@@ -440,14 +447,14 @@ Because N4's `nid` is greater than N1's `nid`,
 N4 triggers a request for a snapshot to N1 in 2 seconds.
 
 ```text
-  [5]                [6]                 
+  [5]                [6]
 N1 <-------        N1 >-------
       | | |              | | |
-N2 >--> | |        N2 <--< | | 
+N2 >--> | |        N2 <--< | |
         | | [TCP]          | | (S)x3
-N3 >----> |        N3 <----< | 
+N3 >----> |        N3 <----< |
           |                  |
-N4 >------>        N4 <------< 
+N4 >------>        N4 <------<
 
 ```
 
